@@ -18,7 +18,11 @@
 import copy
 import functools
 import itertools
+import multiprocess
+import multiprocess.pool
+import multiprocessing
 import multiprocessing.pool
+import numpy as np
 import os
 import queue
 import re
@@ -27,19 +31,15 @@ import warnings
 from contextlib import contextmanager
 from dataclasses import fields, is_dataclass
 from multiprocessing import Manager
+from multiprocessing.queues import Queue
 from pathlib import Path
 from queue import Empty
 from shutil import disk_usage
-from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple, TypeVar, Union
+from tqdm.auto import tqdm
 from urllib.parse import urlparse
 
-import multiprocess
-import multiprocess.pool
-import numpy as np
-from tqdm.auto import tqdm
-
-from .. import config
-from ..parallel import parallel_map
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple, TypeVar, Union
+from typing import Callable, Iterable, TypeVar, Optional
 from . import logging
 from . import tqdm as hf_tqdm
 from ._dill import (  # noqa: F401 # imported for backward compatibility. TODO: remove in 3.0.0
@@ -49,7 +49,8 @@ from ._dill import (  # noqa: F401 # imported for backward compatibility. TODO: 
     pklregister,
 )
 from ._filelock import FileLock
-
+from .. import config
+from ..parallel import parallel_map
 
 try:  # pragma: no branch
     import typing_extensions as _typing_extensions
@@ -59,7 +60,7 @@ except ImportError:
 
 
 logger = logging.get_logger(__name__)
-
+Y = TypeVar('Y')
 
 # NOTE: When used on an instance method, the cache is shared across all
 # instances and IS NOT per-instance.
@@ -683,8 +684,7 @@ def _write_generator_to_queue(queue: queue.Queue, func: Callable[..., Iterable[Y
 def _get_pool_pid(pool: Union[multiprocessing.pool.Pool, multiprocess.pool.Pool]) -> Set[int]:
     return {f.pid for f in pool._pool}
 
-
-def iflatmap_unordered(
+def iflatmap_unordered_with_pool(
     pool: Union[multiprocessing.pool.Pool, multiprocess.pool.Pool],
     func: Callable[..., Iterable[Y]],
     *,
@@ -716,6 +716,78 @@ def iflatmap_unordered(
             if not pool_changed:
                 # we get the result in case there's an error to raise
                 [async_result.get(timeout=0.05) for async_result in async_results]
+
+
+def iflatmap_unordered(
+    num_processes: int,
+    func: Callable[..., Iterable[Y]],
+    *,
+    kwargs_iterable: Iterable[dict],
+    timeout: Optional[float] = 600,
+) -> Iterable[Y]:
+
+    def worker_process(input_q: Queue, output_q: Queue) -> None:
+        try:
+            while True:
+                kwargs: Optional[dict] = input_q.get()
+                if kwargs is None:  # Sentinel value to signal worker to stop
+                    break
+
+                for item in func(**kwargs):
+                    output_q.put(item)
+        finally:
+            # Signal this process is done
+            output_q.put(None)
+
+    # Create input and output queues
+    input_queue: Queue = multiprocessing.Queue()
+    output_queue: Queue = multiprocessing.Queue()
+
+    # Load all kwargs into input queue
+    nkwargs = 0
+    for kwargs in kwargs_iterable:
+        nkwargs += 1
+        if nkwargs >= 2**15 - (1 + num_processes):
+            raise ValueError(f"Too many kwargs, must be less than {2**15 - (1 + num_processes)}")
+        input_queue.put(kwargs)
+
+    # Add sentinel values to signal workers to stop
+    for _ in range(num_processes):
+        input_queue.put(None)
+
+    # Start processes
+    processes: list[multiprocessing.Process] = []
+    for _ in range(num_processes):
+        p = multiprocessing.Process(
+            target=worker_process,
+            kwargs=dict(input_queue=input_queue, output_queue=output_queue)
+        )
+        p.start()
+        processes.append(p)
+
+    # Track how many processes are still running
+    remaining_processes = len(processes)
+
+    try:
+        while remaining_processes > 0:
+            item = output_queue.get(timeout=timeout)
+            if item is None:
+                # A process has completed
+                remaining_processes -= 1
+            else:
+                yield item
+    finally:
+        # Clean up
+        for p in processes:
+            if p.is_alive():
+                p.terminate()
+            p.join()
+
+        # Clean up queues
+        input_queue.close()
+        input_queue.join_thread()
+        output_queue.close()
+        output_queue.join_thread()
 
 
 T = TypeVar("T")

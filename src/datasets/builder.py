@@ -1510,23 +1510,22 @@ class GeneratorBasedBuilder(DatasetBuilder):
             shards_per_job = [None] * num_jobs
             shard_lengths_per_job = [None] * num_jobs
 
-            with Pool(num_proc) as pool:
-                with pbar:
-                    for job_id, done, content in iflatmap_unordered(
-                        pool, self._prepare_split_single, kwargs_iterable=kwargs_per_job
-                    ):
-                        if done:
-                            # the content is the result of the job
-                            (
-                                examples_per_job[job_id],
-                                bytes_per_job[job_id],
-                                features_per_job[job_id],
-                                shards_per_job[job_id],
-                                shard_lengths_per_job[job_id],
-                            ) = content
-                        else:
-                            # the content is the number of examples progress update
-                            pbar.update(content)
+            with pbar:
+                for job_id, done, content in iflatmap_unordered(
+                    num_proc, self._prepare_split_single, kwargs_iterable=kwargs_per_job
+                ):
+                    if done:
+                        # the content is the result of the job
+                        (
+                            examples_per_job[job_id],
+                            bytes_per_job[job_id],
+                            features_per_job[job_id],
+                            shards_per_job[job_id],
+                            shard_lengths_per_job[job_id],
+                        ) = content
+                    else:
+                        # the content is the number of examples progress update
+                        pbar.update(content)
 
             assert None not in examples_per_job, (
                 f"Failed to retrieve results from prepare_split: result list {examples_per_job} still contains None - at least one worker failed to return its results"
@@ -1765,23 +1764,22 @@ class ArrowBasedBuilder(DatasetBuilder):
             shards_per_job = [None] * num_jobs
             shard_lengths_per_job = [None] * num_jobs
 
-            with Pool(num_proc) as pool:
-                with pbar:
-                    for job_id, done, content in iflatmap_unordered(
-                        pool, self._prepare_split_single, kwargs_iterable=kwargs_per_job
-                    ):
-                        if done:
-                            # the content is the result of the job
-                            (
-                                examples_per_job[job_id],
-                                bytes_per_job[job_id],
-                                features_per_job[job_id],
-                                shards_per_job[job_id],
-                                shard_lengths_per_job[job_id],
-                            ) = content
-                        else:
-                            # the content is the number of examples progress update
-                            pbar.update(content)
+            with pbar:
+                for job_id, done, content in iflatmap_unordered(
+                    num_proc, self._prepare_split_single, kwargs_iterable=kwargs_per_job
+                ):
+                    if done:
+                        # the content is the result of the job
+                        (
+                            examples_per_job[job_id],
+                            bytes_per_job[job_id],
+                            features_per_job[job_id],
+                            shards_per_job[job_id],
+                            shard_lengths_per_job[job_id],
+                        ) = content
+                    else:
+                        # the content is the number of examples progress update
+                        pbar.update(content)
 
             assert None not in examples_per_job, (
                 f"Failed to retrieve results from prepare_split: result list {examples_per_job} still contains None - at least one worker failed to return its results"

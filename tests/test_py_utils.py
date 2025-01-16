@@ -243,27 +243,24 @@ def _2seconds_generator_of_2items_with_timing(content):
 
 
 def test_iflatmap_unordered():
-    with Pool(2) as pool:
-        out = list(iflatmap_unordered(pool, _split_text, kwargs_iterable=[{"text": "hello there"}] * 10))
-        assert out.count("hello") == 10
-        assert out.count("there") == 10
-        assert len(out) == 20
+    out = list(iflatmap_unordered(2, _split_text, kwargs_iterable=[{"text": "hello there"}] * 10))
+    assert out.count("hello") == 10
+    assert out.count("there") == 10
+    assert len(out) == 20
 
     # check multiprocess from pathos (uses dill for pickling)
-    with multiprocess.Pool(2) as pool:
-        out = list(iflatmap_unordered(pool, _split_text, kwargs_iterable=[{"text": "hello there"}] * 10))
-        assert out.count("hello") == 10
-        assert out.count("there") == 10
-        assert len(out) == 20
+    out = list(iflatmap_unordered(2, _split_text, kwargs_iterable=[{"text": "hello there"}] * 10))
+    assert out.count("hello") == 10
+    assert out.count("there") == 10
+    assert len(out) == 20
 
     # check that we get items as fast as possible
-    with Pool(2) as pool:
-        out = []
-        for yield_time, content in iflatmap_unordered(
-            pool, _2seconds_generator_of_2items_with_timing, kwargs_iterable=[{"content": "a"}, {"content": "b"}]
-        ):
-            assert yield_time < time.time() + 0.1, "we should each item directly after it was yielded"
-            out.append(content)
-        assert out.count("a") == 2
-        assert out.count("b") == 2
-        assert len(out) == 4
+    out = []
+    for yield_time, content in iflatmap_unordered(
+        2, _2seconds_generator_of_2items_with_timing, kwargs_iterable=[{"content": "a"}, {"content": "b"}]
+    ):
+        assert yield_time < time.time() + 0.1, "we should each item directly after it was yielded"
+        out.append(content)
+    assert out.count("a") == 2
+    assert out.count("b") == 2
+    assert len(out) == 4

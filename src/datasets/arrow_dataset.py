@@ -1542,18 +1542,17 @@ class Dataset(DatasetInfoMixin, IndexableMixin, TensorflowDatasetMixin):
         shard_lengths = [None] * num_shards
         shard_sizes = [None] * num_shards
         if num_proc > 1:
-            with Pool(num_proc) as pool:
-                with pbar:
-                    for job_id, done, content in iflatmap_unordered(
-                        pool, Dataset._save_to_disk_single, kwargs_iterable=kwargs_per_job
-                    ):
-                        if done:
-                            shards_done += 1
-                            pbar.set_description(f"Saving the dataset ({shards_done}/{num_shards} shards)")
-                            logger.debug(f"Finished writing shard number {job_id} of {num_shards}.")
-                            shard_lengths[job_id], shard_sizes[job_id] = content
-                        else:
-                            pbar.update(content)
+            with pbar:
+                for job_id, done, content in iflatmap_unordered(
+                    num_proc, Dataset._save_to_disk_single, kwargs_iterable=kwargs_per_job
+                ):
+                    if done:
+                        shards_done += 1
+                        pbar.set_description(f"Saving the dataset ({shards_done}/{num_shards} shards)")
+                        logger.debug(f"Finished writing shard number {job_id} of {num_shards}.")
+                        shard_lengths[job_id], shard_sizes[job_id] = content
+                    else:
+                        pbar.update(content)
         else:
             with pbar:
                 for kwargs in kwargs_per_job:
@@ -3154,23 +3153,22 @@ class Dataset(DatasetInfoMixin, IndexableMixin, TensorflowDatasetMixin):
                     logger.info(
                         f"Reprocessing {len(kwargs_per_job)}/{num_shards} shards because some of them were missing from the cache."
                     )
-                with Pool(len(kwargs_per_job)) as pool:
-                    os.environ = prev_env
-                    logger.info(f"Spawning {num_proc} processes")
-                    with hf_tqdm(
-                        unit=" examples",
-                        total=pbar_total,
-                        desc=(desc or "Map") + f" (num_proc={num_proc})",
-                    ) as pbar:
-                        for rank, done, content in iflatmap_unordered(
-                            pool, Dataset._map_single, kwargs_iterable=kwargs_per_job
-                        ):
-                            if done:
-                                shards_done += 1
-                                logger.debug(f"Finished processing shard number {rank} of {num_shards}.")
-                                transformed_shards[rank] = content
-                            else:
-                                pbar.update(content)
+                os.environ = prev_env
+                logger.info(f"Spawning {num_proc} processes")
+                with hf_tqdm(
+                    unit=" examples",
+                    total=pbar_total,
+                    desc=(desc or "Map") + f" (num_proc={num_proc})",
+                ) as pbar:
+                    for rank, done, content in iflatmap_unordered(
+                        num_proc, Dataset._map_single, kwargs_iterable=kwargs_per_job
+                    ):
+                        if done:
+                            shards_done += 1
+                            logger.debug(f"Finished processing shard number {rank} of {num_shards}.")
+                            transformed_shards[rank] = content
+                        else:
+                            pbar.update(content)
                 # Avoids PermissionError on Windows (the error: https://github.com/huggingface/datasets/actions/runs/4026734820/jobs/6921621805)
                 for kwargs in kwargs_per_job:
                     del kwargs["shard"]
